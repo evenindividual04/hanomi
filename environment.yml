@@ -1,0 +1,38 @@
+name: hanomi
+channels:
+  - pyg
+  - conda-forge
+  - pytorch
+  - defaults
+
+dependencies:
+  - python=3.10
+  - pip>=23.0
+
+  # PyTorch
+  - pytorch::pytorch>=2.0.0
+  - pytorch::torchvision>=0.15.0
+
+  # PyG
+  - pyg::pyg>=2.3.0
+  - pyg::pytorch-scatter>=2.1.0
+  - pyg::pytorch-sparse>=0.6.0
+
+  # Core
+  - numpy>=1.24.0
+  - pandas>=2.0.0
+  - h5py>=3.8.0
+
+  # Visualization
+  - matplotlib>=3.7.0
+  - seaborn>=0.12.0
+  - scikit-learn>=1.3.0
+
+  # Utilities
+  - pyyaml>=6.0
+  - tqdm>=4.65.0
+  - psutil>=5.9.0
+
+  # Testing
+  - pytest>=7.4.0
+  - pytest-cov>=4.1.0

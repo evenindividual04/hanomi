@@ -1,0 +1,54 @@
+# Ablation D: 1-Hop Expansion
+# Tests the contribution of receptive field size (only immediate neighbors)
+
+feature_types: [through_hole, blind_hole]
+
+epochs: 50
+batch_size: 32
+lr: 1.0e-3
+weight_decay: 1.0e-5
+scheduler: cosine
+warmup_epochs: 5
+grad_clip: 1.0
+
+encoder:
+  node_in_dim: 8
+  edge_in_dim: 3
+  hidden_dim: 128
+  out_dim: 64
+  num_layers: 2  # Reduced to 2 layers for 1-hop receptive field
+  dropout: 0.1
+
+seg_head:
+  in_dim: 64
+  num_classes: 25
+
+pooling:
+  dim: 64
+  mode: attention
+
+loss:
+  seg_weight: 1.0
+  contrastive_weight: 0.5
+  temperature: 0.07
+
+data:
+  h5_dir: MFCAD++_dataset/hierarchical_graphs
+  seed: 42
+  num_workers: 4
+
+inference:
+  tau_seed: 0.6
+  tau_expand: 0.4
+  tau_confidence: 0.5
+  nms_iou_threshold: 0.5
+  k_hop: 1  # 1-hop expansion instead of 2
+
+evaluation:
+  iou_threshold: 0.5
+  compute_calibration: true
+
+# Expected result: Lower F1 (~0.71 vs 0.84)
+# Rationale: 1-hop receptive field cannot capture full feature structure
+# Note: With 2 GINEConv layers, receptive field is 1-hop per layer = 2 hops total
+# For true 1-hop, we would need 1 layer or modify architecture

@@ -1,0 +1,59 @@
+# Base config — all experiments inherit from this
+feature_types: [through_hole]   # MFCAD++ label 1
+
+epochs: 50
+batch_size: 32
+lr: 1.0e-3
+weight_decay: 1.0e-5
+scheduler: cosine          # cosine | step | none
+warmup_epochs: 5
+grad_clip: 1.0
+
+encoder:
+  node_in_dim: 8            # H5 path: 5 V1 + 3 topological  (9 for STEP path)
+  edge_in_dim: 3            # convexity + is_convex + is_concave
+  hidden_dim: 128
+  out_dim: 64
+  num_layers: 3
+  dropout: 0.1
+
+seg_head:
+  in_dim: 64
+  num_classes: 25           # 24 MFCAD++ types + background (label 24 = stock)
+
+pooling:
+  dim: 64
+  mode: attention           # mean | attention
+
+loss:
+  seg_weight: 1.0
+  contrastive_weight: 0.5
+  temperature: 0.07
+
+data:
+  h5_dir: MFCAD++_dataset/hierarchical_graphs
+  seed: 42
+  num_workers: 4
+
+inference:
+  tau_seed: 0.6
+  tau_expand: 0.4
+  tau_confidence: 0.5
+  nms_iou_threshold: 0.5
+  k_hop: 2
+  reference_surface_types:
+    counterbored_hole: [1]  # CYLINDER = 1
+    through_hole: [1]
+    blind_hole: [1]
+    pocket: [0]  # PLANE = 0
+    slot: [0, 1]
+
+evaluation:
+  iou_threshold: 0.5
+  compute_calibration: true
+
+early_stopping:
+  enabled: false
+  patience: 10
+  min_delta: 0.001
+  restore_best_weights: true

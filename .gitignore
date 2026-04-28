@@ -1,0 +1,49 @@
+__pycache__/
+*.py[cod]
+*.so
+.env
+.venv
+env/
+venv/
+hanomi/
+*.zip
+kaggle-download/
+zitbeMQq
+
+# Data (large files)
+data/
+*.h5
+*.pt
+*.step
+*.smt
+*.seg
+s1.0.0/
+s1.0.0.zip
+MFCAD++_dataset/hierarchical_graphs/
+MFCAD++_dataset/step/
+
+# Results & checkpoints — exclude large files, keep metrics/figures
+results/**/per_model_results.json
+results/**/per_model_results.csv
+results/**/checkpoints/
+results/**/*.log
+*.ckpt
+
+# Experiment tracking
+wandb/
+.wandb/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDEs
+.idea/
+.vscode/
+*.egg-info/
+dist/
+build/

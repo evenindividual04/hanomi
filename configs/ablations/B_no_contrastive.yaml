@@ -1,0 +1,52 @@
+# Ablation B: No Contrastive Loss
+# Tests the contribution of contrastive learning to feature recognition
+
+feature_types: [through_hole, blind_hole]
+
+epochs: 50
+batch_size: 32
+lr: 1.0e-3
+weight_decay: 1.0e-5
+scheduler: cosine
+warmup_epochs: 5
+grad_clip: 1.0
+
+encoder:
+  node_in_dim: 8
+  edge_in_dim: 3
+  hidden_dim: 128
+  out_dim: 64
+  num_layers: 3
+  dropout: 0.1
+
+seg_head:
+  in_dim: 64
+  num_classes: 25
+
+pooling:
+  dim: 64
+  mode: attention
+
+loss:
+  seg_weight: 1.0
+  contrastive_weight: 0.0  # Contrastive loss DISABLED
+  temperature: 0.07
+
+data:
+  h5_dir: MFCAD++_dataset/hierarchical_graphs
+  seed: 42
+  num_workers: 4
+
+inference:
+  tau_seed: 0.6
+  tau_expand: 0.4
+  tau_confidence: 0.5
+  nms_iou_threshold: 0.5
+  k_hop: 2
+
+evaluation:
+  iou_threshold: 0.5
+  compute_calibration: true
+
+# Expected result: Lower F1 (~0.76 vs 0.84)
+# Rationale: Contrastive loss helps cluster same-type features in embedding space

@@ -1,0 +1,16 @@
+{
+  "mean_f1": 0.9492448333367092,
+  "mean_precision": 0.9434697893438855,
+  "mean_recall": 0.9634800793988375,
+  "mean_inference_ms": 3.587489582436585,
+  "n_models": 4702,
+  "per_method": {
+    "gnn_seed_expand": {
+      "mean_f1": 0.9492448333367092,
+      "mean_precision": 0.9434697893438855,
+      "mean_recall": 0.9634800793988375,
+      "mean_ms": 3.587489582436585,
+      "n_models": 4702
+    }
+  }
+}

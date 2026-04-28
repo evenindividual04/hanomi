@@ -1,0 +1,16 @@
+{
+  "mean_f1": 0.5450426795426796,
+  "mean_precision": 0.4311318542568543,
+  "mean_recall": 0.95,
+  "mean_inference_ms": 3.150426149368286,
+  "n_models": 200,
+  "per_method": {
+    "rule_based": {
+      "mean_f1": 0.5450426795426796,
+      "mean_precision": 0.4311318542568543,
+      "mean_recall": 0.95,
+      "mean_ms": 3.150426149368286,
+      "n_models": 200
+    }
+  }
+}
