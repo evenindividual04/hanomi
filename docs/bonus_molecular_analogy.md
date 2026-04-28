@@ -33,7 +33,7 @@ Both are:
 
 ### 1. Message Passing GNNs
 **Molecular:** GraphSAGE, GCN aggregate atom features across bonds
-**CAD:** GINEConv, GINEConv aggregate face features across adjacency edges
+**CAD:** GINEConv aggregates face features across adjacency edges with edge attributes
 **Why:** Both learn inductive representations from local neighborhoods
 **Trade-off:** CAD uses edge features (convexity, dihedral angle) which molecular GNNs typically ignore
 
@@ -96,5 +96,4 @@ This cross-domain perspective also clarifies the extensibility claim: just as mo
 
 ---
 
-**Documentation:** Based on theoretical analysis
-**Empirical Validation:** Requires Phase 5 ablation results
+**Ablation C** (no edge features, F1=0.845 vs 0.855 full) partially validates this analogy: edge attributes contribute similarly to bond types in molecular GNNs — important for complex features, less decisive for topologically simple ones (through-holes).

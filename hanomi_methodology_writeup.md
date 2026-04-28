@@ -40,7 +40,7 @@ The model must recognize the same feature regardless of:
 - **Position** — anywhere in the body
 - **Surrounding geometry** — a hole in a flat plate matches a hole in a curved boss
 
-These are handled at multiple levels: normalized node features remove size/position dependence, the GraphSAGE encoder learns topology-agnostic embeddings, and contrastive loss explicitly clusters same-type features regardless of context.
+These are handled at multiple levels: normalized node features remove size/position dependence, the GINEConv encoder learns topology-agnostic embeddings, and contrastive loss explicitly clusters same-type features regardless of context.
 
 ---
 
@@ -126,15 +126,15 @@ proj_head = Sequential(Linear(64, 64), ReLU(), Linear(64, 64))
 
 The projection head absorbs the contrastive uniformity cost during training. Representations *before* the head transfer better to the retrieval task (downstream task = cosine similarity search, not contrastive training). At inference, `use_proj=False` — the head is bypassed. This keeps V1 checkpoints fully compatible: the `proj_head` weights exist in the model but are never called at inference.
 
-### 3.2 Segmentation Head
+### 3.3 Segmentation Head
 
 A 2-layer MLP (`Linear(64 → 64) → ReLU → Dropout(0.1) → Linear(64 → 25)`) produces per-face logits for 24 MFCAD++ feature types + background. This provides dense supervision signal during training.
 
-### 3.3 Subgraph Pooling
+### 3.4 Subgraph Pooling
 
 Given per-face embeddings and a boolean mask of faces in a feature subgraph, the pooling module produces a single embedding via learned attention weights: `attn_weights = softmax(Linear(face_emb))`, then `subgraph_emb = Σ(attn_weights * face_emb)`. This is differentiable and allows the contrastive loss to operate on subgraph-level representations.
 
-### 3.4 Hybrid Loss
+### 3.5 Hybrid Loss
 
 ```
 L_total = w_seg · L_CE + w_contrastive · L_pairwise
@@ -158,7 +158,7 @@ Temperature τ=0.07 is the SimCLR/MoCo standard. Lower τ sharpens the negative 
 - **Contrastive loss alone** provides weak supervision — face labels are plentiful in MFCAD++ but contrastive triplets require careful mining and are sparser.
 - **Together:** Segmentation provides dense gradients that force the encoder to learn discriminative per-face geometry. Contrastive loss on pooled subgraph embeddings ensures that same-type features from different models cluster together, directly optimizing the retrieval objective.
 
-### 3.5 Data Augmentation
+### 3.6 Data Augmentation
 
 Two augmentations are applied during training (borrowed from SOLA-GCL, GraphCL):
 
@@ -173,7 +173,7 @@ Both augmentations use `data.clone()` to preserve immutability (original graph u
 - *Mean curvature*: FilletRec ablation shows 99.91% → 93.46% F1 without it for fillet recognition. Less decisive for through/blind holes (topological pattern > curvature). Requires OCC re-parsing.
 - *Edge length + curve type*: BRepGAT uses these. Require OCC. V2 roadmap.
 
-### 3.6 Training details
+### 3.7 Training details
 
 - **Optimizer:** AdamW (lr=1e-3, weight_decay=1e-5)
 - **Scheduler:** Cosine annealing with 5-epoch linear warmup
@@ -223,7 +223,8 @@ Serialize 2-hop neighborhood around candidate seed faces as JSON, send to Claude
 
 | Model | Tokens/query | Cost/query | Cost/1000 queries |
 |---|---|---|---|
-| Claude Haiku | ~800 | ~$0.002 | ~$2.00 |
+| Cerebras llama3.1-8b | ~800 | $0.00 (free tier) | $0.00 |
+| Claude Haiku | ~800 | ~$0.0002 | ~$0.20 |
 | GPT-4o | ~800 | ~$0.003 | ~$3.00 |
 
 Context overflow strategy: never serialize the full model. Seed-first (find candidate faces), then serialize only 2-hop neighborhoods of top-K seeds. A 2000-face model with 10 seeds → ~8000 tokens, within context limits.
@@ -237,7 +238,7 @@ Remove contrastive loss (`contrastive_weight=0`), train with segmentation CE onl
 | Method | Instance F1 | Precision | Recall | Inference (ms/model) | N models |
 |---|---|---|---|---|---|
 | Rule-based | 0.545 | 0.431 | 0.950 | 3.2 | 200 |
-| LLM (Claude Sonnet) | TBD | TBD | TBD | ~1500 | 200 |
+| LLM (Cerebras llama3.1-8b) | 0.368 | 0.225 | 1.000 | 5,600 | 50 |
 | **GNN Phase 1** (through_hole) | **0.829** | 0.771 | 0.962 | 12.0 | 4702 |
 | **GNN Phase 2** (+ blind_hole) | **0.810** | 0.753 | 0.945 | 13.3 | 7120 |
 
@@ -327,7 +328,7 @@ A secondary analogue: GNN-based molecular fingerprints (ECFP analogy). Our contr
 BRepMAE approach on the ABC dataset (1M unlabeled STEP files):
 1. Parse each model → B-Rep graph
 2. Randomly mask 30% of face attributes (surface type, area, radius)
-3. Train GraphSAGE encoder to reconstruct masked attributes from topological context
+3. Train GINEConv encoder to reconstruct masked attributes from topological context
 4. Fine-tune on MFCAD++ with supervised segmentation + contrastive loss
 
 Expected benefit: the encoder learns geometry-agnostic, topology-aware representations before seeing any labels. Fine-tuning should reach the same F1 with 5–10× fewer labeled examples.
@@ -347,8 +348,9 @@ Expected benefit: the encoder learns geometry-agnostic, topology-aware represent
 
 | Scale | GPU-seconds/query | $/query (A10G @ $0.002/s) |
 |---|---|---|
-| Single STEP, 200 faces | ~0.025s | ~$0.00005 |
-| 1M queries/day | 25,000 GPU-seconds | $50/day |
-| LLM baseline equivalent | N/A | $2,000–3,000/day |
+| Single STEP, 200 faces | 0.012s | $0.000024 |
+| 10k queries/day | 120 GPU-seconds | $0.24/day |
+| 1M queries/day | 12,000 GPU-seconds | $24/day |
+| LLM baseline equivalent | N/A | ~$200–3,000/day |
 
-The GNN approach is ~40,000× cheaper than LLM at production scale.
+The GNN approach is ~8,000–125,000× cheaper than LLM at production scale (Cerebras free tier to paid APIs).
