@@ -149,10 +149,33 @@ def evaluate_llm_baseline(
     Returns:
         Dictionary with metrics
     """
-    if api_key is None:
-        api_key = os.environ.get('ANTHROPIC_API_KEY') or os.environ.get('GEMINI_API_KEY')
+    _KEY_ENV_MAP = {
+        ("gemini-", "gemma-"): "GEMINI_API_KEY",
+        ("groq-", "llama-", "mixtral-", "deepseek-"): "GROQ_API_KEY",
+        ("claude-",): "ANTHROPIC_API_KEY",
+        ("glm-",): "ZHIPUAI_API_KEY",
+        ("cerebras:",): "CEREBRAS_API_KEY",
+        ("mistral:",): "MISTRAL_API_KEY",
+    }
 
-    if not api_key:
+    def _detect_key_env(model: str) -> str:
+        for prefixes, env_var in _KEY_ENV_MAP.items():
+            if model.startswith(prefixes):
+                return env_var
+        return ""
+
+    if api_key is None:
+        env_var = _detect_key_env(llm_model)
+        api_key = os.environ.get(env_var) if env_var else None
+        if api_key is None:
+            # Fall back to any available key
+            for env_var in ("CEREBRAS_API_KEY", "MISTRAL_API_KEY", "GEMINI_API_KEY",
+                            "GROQ_API_KEY", "ANTHROPIC_API_KEY", "ZHIPUAI_API_KEY"):
+                api_key = os.environ.get(env_var)
+                if api_key:
+                    break
+
+    if not api_key and not llm_model.startswith(("ollama:", "hf:")):
         print("Warning: No API key found, skipping LLM baseline")
         return {
             'method': 'llm',
@@ -162,31 +185,35 @@ def evaluate_llm_baseline(
             'recall': 0.0,
         }
 
-    selected_model = llm_model.lower()
-    if selected_model.startswith(("gemini-", "gemma-")):
-        os.environ['GEMINI_API_KEY'] = api_key
-    elif selected_model.startswith(("groq-", "llama-", "mixtral-", "deepseek-")):
-        os.environ['GROQ_API_KEY'] = api_key
-    elif selected_model.startswith("claude-"):
-        os.environ['ANTHROPIC_API_KEY'] = api_key
+    env_var = _detect_key_env(llm_model)
+    if env_var and api_key:
+        os.environ[env_var] = api_key
 
     with open(config_path) as f:
         config = yaml.safe_load(f)
 
     resolved_h5_dir = h5_dir or config['data']['h5_dir']
 
-    loaders = make_dataloaders(
-        h5_dir=resolved_h5_dir,
-        feature_types=config['feature_types'],
-        batch_size=1,
+    from pathlib import Path as _Path
+    h5_path = next(
+        p for p in [
+            _Path(resolved_h5_dir) / "test_MFCAD++.h5",
+            _Path(resolved_h5_dir) / "test_MFCAD.h5",
+        ] if p.exists()
     )
+    print(f"Opening {h5_path.name}...", flush=True)
+    dataset = MFCADPlusPlusDataset(h5_path)
     target_label = MFCADPlusPlusDataset.label_names_for([config['feature_types'][0]])[0]
+    print(f"Dataset ready — {len(dataset)} models. Running on first {sample_size}.", flush=True)
 
     results = []
     overflow_count = 0
     total_time = 0
 
-    for i, data in enumerate(loaders['test']):
+    print(f"\nLLM baseline — model: {llm_model} | models: {sample_size} | max_seeds: {max_seeds}")
+    print("-" * 60)
+
+    for i, data in enumerate(dataset):
         if i >= sample_size:
             break
 
@@ -201,7 +228,7 @@ def evaluate_llm_baseline(
                 llm_model=llm_model,
             )
         except Exception as e:
-            print(f"Error calling LLM: {e}")
+            print(f"  [{i+1}/{sample_size}] ERROR: {e}")
             model_results = []
             overflow_count += 1
 
@@ -213,6 +240,27 @@ def evaluate_llm_baseline(
             model_id = model_id[0]
         if hasattr(model_id, 'item'):
             model_id = model_id.item()
+
+        n_pred = len(model_results)
+        avg_so_far = total_time / (i + 1)
+        eta_s = avg_so_far * (sample_size - i - 1) / 1000
+        print(f"  [{i+1:>3}/{sample_size}] model={model_id} | "
+              f"found={n_pred} instances | {elapsed_ms:.0f}ms | ETA {eta_s:.0f}s",
+              flush=True)
+
+        if (i + 1) % 10 == 0:
+            done = i + 1
+            running_results = results + [{
+                'predicted': model_results,
+                'ground_truth': _build_gt_instances(data, target_label),
+            }]
+            all_p = [x for r in running_results for x in r['predicted']]
+            all_g = [x for r in running_results for x in r['ground_truth']]
+            if all_g:
+                from src.evaluation.metrics import instance_f1
+                p, r, f = instance_f1(all_p, all_g)
+                print(f"\n  --- Milestone {done}/{sample_size}: F1={f:.3f} P={p:.3f} R={r:.3f} ---\n",
+                      flush=True)
 
         results.append({
             'model_id': model_id,
@@ -271,7 +319,7 @@ if __name__ == '__main__':
     parser.add_argument('--llm_max_seeds', type=int, default=5, help='Max seeds per model for LLM baseline')
     args = parser.parse_args()
 
-    print(f"Running baseline evaluation: {args.methods}")
+    print(f"Running baseline evaluation: {args.methods}", flush=True)
 
     all_metrics = {}
 

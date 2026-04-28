@@ -1,0 +1,14 @@
+{
+  "llm": {
+    "method": "llm",
+    "precision": 0.22549019607843138,
+    "recall": 1.0,
+    "f1": 0.368,
+    "num_models": 50,
+    "avg_inference_ms": 5598.240427970886,
+    "num_predicted": 102,
+    "num_ground_truth": 23,
+    "overflow_rate": 0.0,
+    "overflow_count": 0
+  }
+}

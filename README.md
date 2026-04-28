@@ -118,7 +118,7 @@ pytest --cov=src --cov-report=term-missing
 | Method | F1 | Precision | Recall | ms/model | N models |
 |---|---|---|---|---|---|
 | Rule-based | 0.545 | 0.431 | 0.950 | 3.2 | 200 |
-| LLM (Claude Sonnet) | TBD | TBD | TBD | ~1500 | 200 |
+| LLM (Cerebras llama3.1-8b) | 0.368 | 0.225 | 1.000 | 5.6 | 50 |
 | **GNN Phase 1** (through_hole) | **0.829** | 0.771 | 0.962 | 12.0 | 4702 |
 | **GNN Phase 2** (+ blind_hole) | **0.810** | 0.753 | 0.945 | 13.3 | 7120 |
 
@@ -143,7 +143,7 @@ Run ablation evals with `scripts/evaluate.py`, then `python scripts/generate_rep
 | Method | ms/query | GPU-h / 10k queries | $/10k queries |
 |---|---|---|---|
 | Rule-based | 3.2 | 0.000 | $0.00 |
-| LLM (Claude Sonnet) | ~1500 | N/A (API) | ~$20 |
+| LLM (Cerebras llama3.1-8b) | ~5600 | N/A (API) | ~$0 (free tier) |
 | GNN (T4 GPU) | 12 | 0.033 | ~$0.15 |
 
 ---

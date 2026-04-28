@@ -26,7 +26,9 @@ SURFACE_TYPE_NAMES = {0: "plane", 1: "cylinder", 2: "cone",
 
 
 def _decode_surface_type(val: float) -> int:
-    return round(float(val) * 11)
+    # H5 stores surface_type as float32(type/11); float32 truncates so int() not round()
+    # gives correct result: e.g. 2/11=0.18182 → int(1.9999)=1 (cylinder), not round→2.
+    return int(float(val) * 11)
 
 
 SYSTEM_PROMPT_TEMPLATE = """\
@@ -123,11 +125,11 @@ def serialize_subgraph(data: Data, face_indices: List[int]) -> str:
     return json.dumps({"faces": faces_json}, indent=2)
 
 
-def _two_hop_subgraph(data: Data, seed: int) -> List[int]:
-    """Return 2-hop face neighborhood around a seed face."""
+def _khop_subgraph(data: Data, seed: int, k: int = 2) -> List[int]:
+    """Return k-hop face neighborhood around a seed face."""
     visited = {seed}
     frontier = {seed}
-    for _ in range(2):
+    for _ in range(k):
         next_frontier = set()
         for f in frontier:
             mask = data.edge_index[0] == f
@@ -138,6 +140,10 @@ def _two_hop_subgraph(data: Data, seed: int) -> List[int]:
                     next_frontier.add(n)
         frontier = next_frontier
     return sorted(visited)
+
+
+def _two_hop_subgraph(data: Data, seed: int) -> List[int]:
+    return _khop_subgraph(data, seed, k=2)
 
 
 def _parse_json_response(text: str) -> Optional[Dict]:
@@ -166,11 +172,15 @@ def query_llm(
     """Send a prompt to an LLM and parse JSON response.
 
     Supported providers (detected by model name prefix):
-      - gemini-*   → Google Gemini via google-genai
-      - groq-*     → Groq via groq SDK
-      - llama-*    → Groq via groq SDK
-      - mixtral-*  → Groq via groq SDK
-      - claude-*   → Anthropic via anthropic SDK
+      - gemini-*    → Google Gemini via google-genai
+      - groq-*      → Groq via groq SDK
+      - llama-*     → Groq via groq SDK (remote) or Ollama (if ollama:// prefix)
+      - mixtral-*   → Groq via groq SDK
+      - claude-*    → Anthropic via anthropic SDK
+      - glm-*       → ZhipuAI (z.ai) via zhipuai SDK
+      - ollama:*    → Local Ollama server (no API key needed)
+      - cerebras:*  → Cerebras Cloud (CEREBRAS_API_KEY); e.g. cerebras:llama3.1-8b
+      - mistral:*   → Mistral AI cloud API (MISTRAL_API_KEY); e.g. mistral:mistral-small-latest
 
     Returns parsed dict or None on failure.
     """
@@ -198,6 +208,55 @@ def query_llm(
             )
             return _parse_json_response(response.choices[0].message.content)
 
+        if active_model.startswith("hf:"):
+            from transformers import pipeline
+            hf_model = active_model.split(":", 1)[1]
+            if not hasattr(query_llm, "_hf_pipe") or query_llm._hf_pipe.model.name_or_path != hf_model:
+                import torch
+                query_llm._hf_pipe = pipeline(
+                    "text-generation",
+                    model=hf_model,
+                    torch_dtype=torch.float16,
+                    device_map="auto",
+                )
+            messages = [{"role": "system", "content": system}, {"role": "user", "content": prompt}]
+            out = query_llm._hf_pipe(messages, max_new_tokens=max_tokens, do_sample=False)
+            text = out[0]["generated_text"][-1]["content"]
+            return _parse_json_response(text)
+
+        if active_model.startswith("ollama:"):
+            import urllib.request, json as _json
+            ollama_model = active_model.split(":", 1)[1]
+            payload = _json.dumps({
+                "model": ollama_model,
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": prompt},
+                ],
+                "stream": False,
+            }).encode()
+            req = urllib.request.Request(
+                "http://localhost:11434/api/chat",
+                data=payload,
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=180) as resp:
+                body = _json.loads(resp.read())
+            return _parse_json_response(body["message"]["content"])
+
+        if active_model.startswith("glm-"):
+            from zhipuai import ZhipuAI
+            client = ZhipuAI(api_key=os.environ["ZHIPUAI_API_KEY"])
+            response = client.chat.completions.create(
+                model=active_model,
+                max_tokens=max_tokens,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": prompt},
+                ],
+            )
+            return _parse_json_response(response.choices[0].message.content)
+
         if active_model.startswith("claude-"):
             import anthropic
             client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
@@ -208,6 +267,34 @@ def query_llm(
                 messages=[{"role": "user", "content": prompt}],
             )
             return _parse_json_response(response.content[0].text)
+
+        if active_model.startswith("cerebras:"):
+            from cerebras.cloud.sdk import Cerebras
+            cerebras_model = active_model.split(":", 1)[1]
+            client = Cerebras(api_key=os.environ["CEREBRAS_API_KEY"])
+            response = client.chat.completions.create(
+                model=cerebras_model,
+                max_tokens=max_tokens,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": prompt},
+                ],
+            )
+            return _parse_json_response(response.choices[0].message.content)
+
+        if active_model.startswith("mistral:"):
+            from mistralai import Mistral
+            mistral_model = active_model.split(":", 1)[1]
+            client = Mistral(api_key=os.environ["MISTRAL_API_KEY"])
+            response = client.chat.complete(
+                model=mistral_model,
+                max_tokens=max_tokens,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": prompt},
+                ],
+            )
+            return _parse_json_response(response.choices[0].message.content)
 
         print(f"Unknown model prefix: {active_model}")
         return None
@@ -247,7 +334,9 @@ def query_llm(
                     break
                 print(f"LLM query failed on {active_model} attempt {attempt + 1}/3: {e}")
                 if attempt < 2:
-                    time.sleep(1.5 * (attempt + 1))
+                    # Longer backoff for token-per-minute limits (Groq: 6k TPM)
+                    backoff = 30.0 if "429" in str(e) else 1.5 * (attempt + 1)
+                    time.sleep(backoff)
 
     return None
 
@@ -289,11 +378,16 @@ def run_llm_baseline(
 
     instances = []
     for seed in seeds_to_query:
-        subgraph_indices = _two_hop_subgraph(data, seed)
-        if len(subgraph_indices) > 50:
-            subgraph_indices = subgraph_indices[:50]
+        # 2-hop for LLM context (richer neighborhood info), but GT in MFCAD++
+        # labels only the feature face(s) themselves (avg 1.4 faces/instance).
+        # Returning a k-hop neighborhood gives IoU << 0.5 → all FPs.
+        # Predict just [seed]: if LLM says "match", the seed cylinder IS the feature.
+        context_indices = _khop_subgraph(data, seed, k=2)
+        predict_indices = [seed]
+        if len(context_indices) > 15:
+            context_indices = context_indices[:15]
 
-        subgraph_json = serialize_subgraph(data, subgraph_indices)
+        subgraph_json = serialize_subgraph(data, context_indices)
         user_message  = (
             f"Determine if the following B-Rep subgraph represents a {feature_type}:\n\n"
             f"{subgraph_json}"
@@ -302,14 +396,24 @@ def run_llm_baseline(
         t0     = time.time()
         result = query_llm(user_message, system_prompt, model=llm_model)
         latency_ms = (time.time() - t0) * 1000
+        # Per-provider throttle to stay within free-tier rate limits.
+        # Cerebras/Ollama: no throttle needed (fast local or generous limits).
+        # Mistral: 1 req/sec free tier.
+        # Groq/GLM: 6k tokens/min → ~10s/query.
+        elapsed = time.time() - t0
+        if llm_model.startswith("mistral:"):
+            time.sleep(max(0.0, 1.0 - elapsed))
+        elif llm_model.startswith(("groq-", "llama-", "mixtral-", "deepseek-", "glm-")):
+            time.sleep(max(0.0, 10.0 - elapsed))
 
-        if result and result.get("is_match") and result.get("confidence", 0) > 0.5:
+        # Raise threshold to 0.7 to reduce false positives from small models.
+        if result and result.get("is_match") and result.get("confidence", 0) > 0.7:
             instances.append({
-                "face_ids":    subgraph_indices,
+                "face_ids":    predict_indices,
                 "confidence":  result.get("confidence", 0.5),
                 "reasoning":   result.get("reasoning", ""),
                 "latency_ms":  latency_ms,
-                "_cluster_set": set(subgraph_indices),
+                "_cluster_set": set(predict_indices),
             })
 
     from src.inference.nms import non_max_suppression
@@ -335,12 +439,16 @@ def run_llm_baselines_multi(
     """
     if models is None:
         models = []
+        if os.environ.get("CEREBRAS_API_KEY"):
+            models.append("cerebras:llama3.3-70b")
+        if os.environ.get("MISTRAL_API_KEY"):
+            models.append("mistral:mistral-small-latest")
         if os.environ.get("GEMINI_API_KEY"):
             models.append("gemini-2.0-flash")
         if os.environ.get("GROQ_API_KEY"):
             models.append("llama-3.3-70b-versatile")
         if not models:
-            models = ["gemini-2.0-flash"]
+            models = ["cerebras:llama3.1-8b"]
 
     results = {}
     for m in models:
