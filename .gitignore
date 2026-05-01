@@ -36,6 +36,7 @@ wandb/
 # Jupyter
 .ipynb_checkpoints/
 *.ipynb
+!notebooks/*.ipynb
 
 # OS
 .DS_Store
